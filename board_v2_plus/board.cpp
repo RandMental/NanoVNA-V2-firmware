@@ -146,24 +146,29 @@ namespace board {
 	}
 
 	void rcc_clock_setup_in_hse_24mhz_out_120mhz(void) {
+		 cpu_mhz = 120;
+		 // only run the initialization once
+		 if(RCC_CR & RCC_CR_HSEON) return;
+
 		 /* Enable internal high-speed oscillator. */
 		 rcc_osc_on(RCC_HSI);
 		 rcc_wait_for_osc_ready(RCC_HSI);
-
-		 /* Select HSI as SYSCLK source. */
-		 rcc_set_sysclk_source(RCC_CFGR_SW_SYSCLKSEL_HSICLK);
-
+		 
 		 /* Enable external high-speed oscillator. */
 		 rcc_osc_on(RCC_HSE);
 		 rcc_wait_for_osc_ready(RCC_HSE);
+
+		 /* Select HSE as SYSCLK source. */
 		 rcc_set_sysclk_source(RCC_CFGR_SW_SYSCLKSEL_HSECLK);
+		 
+		 rcc_osc_off(RCC_PLL);
 
 		 /*
 		  * Set prescalers for AHB, ADC, ABP1, ABP2.
 		  * Do this before touching the PLL (TODO: why?).
 		  */
 		 rcc_set_hpre(RCC_CFGR_HPRE_SYSCLK_NODIV);					// Set. 120MHz Max. 120MHz
-		 rcc_set_adcpre_gd32(GD32_RCC_CFGR_ADCPRE_HCLK_DIV20);		// Set. 6MHz Max. 40MHz
+		 rcc_set_adcpre_gd32(GD32_RCC_CFGR_ADCPRE_PCLK2_DIV4);		// Set. 30MHz Max. 40MHz
 		 rcc_set_ppre1(RCC_CFGR_PPRE1_HCLK_DIV2);					// Set. 60MHz Max. 60MHz
 		 rcc_set_ppre2(RCC_CFGR_PPRE2_HCLK_NODIV);					// Set. 120MHz Max. 120MHz
 		 rcc_set_usbpre_gd32(2);									// 120MHz / 2.5 = 48MHz
@@ -199,22 +204,10 @@ namespace board {
 		 rcc_apb1_frequency = 60000000;
 		 rcc_apb2_frequency = 120000000;
 
-		 cpu_mhz = 120;
 	}
+
 	void boardInit() {
-		hseEstimateHz = detectHSEFreq();
-		if(21466200 < hseEstimateHz && hseEstimateHz < 27712800)
-		{
-			/* 24Mhz HSE detected */
-		}
-		else {
-			/* Error HSE is at an unexpected frequency.
-			 * TODO how do we handle this? 
-			 * Is it worth to boot using internal 8 Mhz, and start display
-			 * to tell something is terribly wrong?
-			 */
-		}
-		rcc_clock_setup_in_hse_24mhz_out_96mhz();
+		rcc_clock_setup_in_hse_24mhz_out_120mhz();
 
 		// enable basic peripherals
 		rcc_periph_clock_enable(RCC_GPIOA);
@@ -248,14 +241,13 @@ namespace board {
 		pinMode(xpt2046_cs, OUTPUT);
 
 		adc_ratecfg = ADC_SMPR_SMP_7DOT5CYC;
-		adc_srate = 6000000/(7.5+12.5);
+		adc_srate = 30000000/(7.5+12.5);
 		adc_period_cycles = (7.5+12.5);
-		adc_clk = 6000000;
-
-		MEASUREMENT_NPERIODS_NORMAL = 14;
-		MEASUREMENT_NPERIODS_CALIBRATING = 30;
-		MEASUREMENT_ECAL_INTERVAL = 5;
-		MEASUREMENT_NWAIT_SWITCH = 1;
+		adc_clk = 30000000;
+		MEASUREMENT_NPERIODS_NORMAL = 10;
+		MEASUREMENT_NPERIODS_CALIBRATING = 23;
+		MEASUREMENT_ECAL_INTERVAL = 16;
+		MEASUREMENT_NWAIT_SWITCH = 4;
 	}
 
 
@@ -282,15 +274,18 @@ namespace board {
 		digitalWrite(led2, LOW);
 	}
 
-	int calculateSynthWaitAF( freqHz_t freqHz) {
-		return 10;
+	int calculateSynthWaitAF(freqHz_t freqHz) {
+		if(freqHz < 1200000000) return  7;
+		if(freqHz < 2200000000) return 10;
+		if(freqHz < 3200000000) return 14;
+		return 18;
 	}
 
 	int calculateSynthWaitSI(int retval) {
 		switch(retval) {
-			case 0: return 18;
-			case 1: return 60;
-			case 2: return 60;
+			case 0: return 36;
+			case 1: return 120;
+			case 2: return 120;
 		}
 		return 5;
 	}

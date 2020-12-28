@@ -33,7 +33,7 @@ typedef int64_t freqHz_t;
 
 #define VERSION "git"
 #define FIRMWARE_MAJOR_VERSION 1
-#define FIRMWARE_MINOR_VERSION 1
+#define FIRMWARE_MINOR_VERSION 2
 #define CH_KERNEL_VERSION "None"
 #define PORT_COMPILER_NAME "gcc"
 #define PORT_ARCHITECTURE_NAME "arm"
@@ -48,11 +48,13 @@ typedef int64_t freqHz_t;
 // The ADF4350 lower limit is 137Mhz, so it must be above 137Mhz
 static constexpr uint32_t FREQUENCY_CHANGE_OVER	= 140000000;
 #define SWEEP_POINTS_MIN 2
+#ifndef SWEEP_POINTS_MAX
 #define SWEEP_POINTS_MAX 201
-#define USB_POINTS_MAX 1024
+#endif
+
 #define TRACES_MAX 4
 #define MARKERS_MAX 4
-#define FFT_SIZE 512
+#define FFT_SIZE 256
 #define ECAL_PARTIAL
 
 #ifdef ECAL_PARTIAL
@@ -62,12 +64,14 @@ static constexpr uint32_t FREQUENCY_CHANGE_OVER	= 140000000;
 #endif
 
 
+#define CAL_ENTRIES 7
 #define CAL_LOAD 0
 #define CAL_OPEN 1
 #define CAL_SHORT 2
 #define CAL_THRU 3
 #define CAL_ISOLN_OPEN 4
 #define CAL_ISOLN_SHORT 5
+#define CAL_THRU_REFL 6
 
 #define CALSTAT_LOAD (1<<0)
 #define CALSTAT_OPEN (1<<1)
@@ -81,6 +85,7 @@ static constexpr uint32_t FREQUENCY_CHANGE_OVER	= 140000000;
 #define CALSTAT_EX CALSTAT_ISOLN
 #define CALSTAT_APPLY (1<<8)
 #define CALSTAT_INTERPOLATED (1<<9)
+#define CALSTAT_ENHANCED_RESPONSE (1<<10)
 
 #define ETERM_ED 0 /* error term directivity */
 #define ETERM_ES 1 /* error term source match */
@@ -107,19 +112,23 @@ static constexpr uint32_t FREQUENCY_CHANGE_OVER	= 140000000;
 #define REDRAW_MARKER     (1<<3)
 #define REDRAW_AREA       (1<<4)
 
+/* Determines the measurements the ADC will do. */
+enum MeasurementMode {
+    MEASURE_MODE_FULL, //Including ECAL, slowest
+    MEASURE_MODE_REFL_THRU, //Does not switch the output, use for CW mode
+    MEASURE_MODE_REFL_THRU_REFRENCE, //No ecal
+};
 
 constexpr uint32_t BOOTLOADER_DFU_MAGIC = 0xdeadbabe;
 static volatile uint32_t& bootloaderDFUIndicator = *(uint32_t*)(0x20000000 + 48*1024 - 4);
 
-constexpr int MEASUREMENT_NPERIODS_NORMAL = 14;
-constexpr int MEASUREMENT_NPERIODS_CALIBRATING = 30;
-constexpr int MEASUREMENT_ECAL_INTERVAL = 5;
+
 
 
 // TODO: name all enums and refer to them by name
 
 enum {
-  TRC_LOGMAG, TRC_PHASE, TRC_DELAY, TRC_SMITH, TRC_POLAR, TRC_LINEAR, TRC_SWR, TRC_REAL, TRC_IMAG, TRC_R, TRC_X, TRC_OFF
+  TRC_LOGMAG, TRC_PHASE, TRC_DELAY, TRC_SMITH, TRC_POLAR, TRC_LINEAR, TRC_SWR, TRC_REAL, TRC_IMAG, TRC_R, TRC_X, TRC_Q, TRC_OFF
 };
 
 enum SweepParameter {
@@ -140,6 +149,9 @@ enum MarkerSearchModes: uint8_t {
 	Min,
 	Max
 };
+
+#define MK_SEARCH_LEFT    -1
+#define MK_SEARCH_RIGHT    1
 
 enum {
 	UI_OPTIONS_FLIP = 1
@@ -168,22 +180,44 @@ struct alignas(4) properties_t {
   int16_t _sweep_points;
   uint16_t _cal_status;
 
-  complexf _cal_data[6][SWEEP_POINTS_MAX];
+  complexf _cal_data[CAL_ENTRIES][SWEEP_POINTS_MAX];
   float _electrical_delay; // picoseconds
-  
+
   trace_t _trace[TRACES_MAX];
   marker_t _markers[MARKERS_MAX];
   float _velocity_factor; // %
   int _active_marker;
   uint8_t _domain_mode; /* 0bxxxxxffm : where ff: TD_FUNC m: DOMAIN_MODE */
   uint8_t _marker_smith_format;
+  uint8_t _avg;
+  uint8_t _adf4350_txPower; // 0 to 3
+  uint8_t _si5351_txPower; // 0 to 3
+  uint8_t _measurement_mode; //See enum MeasurementMode.
 
   int32_t checksum;
 
   // overwrite all fields of this instance with factory default values
   void setFieldsToDefault();
 
+  // clear calibration data
+  void setCalDataToDefault();
+
   properties_t() { setFieldsToDefault(); }
+  freqHz_t startFreqHz() const {
+    if(_frequency1 > 0) return _frequency0;
+    return _frequency0 + _frequency1/2;
+  }
+  freqHz_t stopFreqHz() const {
+    if(_frequency1 > 0) return _frequency1;
+    return _frequency0 - _frequency1/2;
+  }
+  freqHz_t stepFreqHz() const {
+    if(_sweep_points > 0)
+      return (stopFreqHz() - startFreqHz()) / (_sweep_points - 1);
+    return 0;
+  }
+
+  void do_cal_reset(int calType, complexf val);
 };
 
 
@@ -206,7 +240,6 @@ struct uistat_t {
   int8_t digit_mode;
   int8_t current_trace; /* 0..3 */
   int64_t value; // for editing at numeric input area
-  int64_t previous_value;
   uint8_t lever_mode;
   int8_t previous_marker;
   MarkerSearchModes marker_search_mode;
@@ -214,12 +247,12 @@ struct uistat_t {
   bool marker_delta;
 };
 
-#define CONFIG_MAGIC 0x80081235
+#define CONFIG_MAGIC 0x8008123c
 
 
-static inline bool is_freq_for_adf4350(freqHz_t freq) 
+static inline bool is_freq_for_adf4350(freqHz_t freq)
 {
-	return freq > FREQUENCY_CHANGE_OVER;
+	return freq >= FREQUENCY_CHANGE_OVER;
 }
 
 // convert vbat [mV] to battery indicator
@@ -249,7 +282,8 @@ static const struct {
   { "REAL",   4,  0.25 },
   { "IMAG",   4,  0.25 },
   { "R",      0, 100 },
-  { "X",      4, 100 }
+  { "X",      4, 100 },
+  { "Q",      0, 10.0 }
 };
 
 static const char * const trc_channel_name[] = {

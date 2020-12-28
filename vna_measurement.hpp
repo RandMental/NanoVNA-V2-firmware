@@ -24,20 +24,21 @@ public:
 	typedef complex<int32_t> complexi;
 
 	// how many periods to wait after changing rf switches
-	static constexpr uint32_t nWaitSwitch = 1;
+	uint32_t nWaitSwitch = 1;
 
 	// how many periods to wait after changing synthesizer frequency
 	uint32_t nWaitSynth = 30;
 
 	// how many periods to average over
 	uint32_t nPeriods = 14;
+	uint32_t nPeriodsMultiplier = 1;
 
 	// every ecalIntervalPoints we will measure one frequency point for ecal
 	uint32_t ecalIntervalPoints = 8;
 
 	// AGC parameters; VNAMeasurement will detect ADC clip events and inform the
 	// host when baseband/rf gain needs to be changed.
-	int gainMin = 0, gainMax = 3;
+	uint8_t gainMin = 0, gainMax = 3;
 
 	uint32_t adcFullScale = 30000;
 
@@ -83,7 +84,7 @@ public:
 
 	struct _emitValue_t {
 		VNAMeasurement* m;
-		void operator()(int32_t* valRe, int32_t* valIm);
+		void operator()(int64_t* valRe, int64_t* valIm);
 	};
 
 	SampleProcessor<_emitValue_t> sampleProcessor;
@@ -105,6 +106,9 @@ public:
 	uint32_t ecalCounter = 0;
 	uint32_t ecalCounterOffset = 0;
 
+	// What measurements to make
+	enum MeasurementMode measurement_mode = MEASURE_MODE_FULL;
+
 	// number of frequency points since start of sweep
 	volatile int sweepCurrPoint = 0;
 
@@ -113,20 +117,21 @@ public:
 
 
 	// current data point variables
-	complexi currDP, currFwd, currRefl, currThru;
+	int64_t currDP_re, currDP_im;
+	complexf currFwd, currRefl, currThru;
 
 	// sweep params
 	freqHz_t sweepStartHz = 0, sweepStepHz = 0;
 	int sweepPoints = 1;
 	int sweepDataPointsPerFreq = 1;
 
-	uint64_t currFreq;
+	freqHz_t currFreq;
 
 	complexf ecal[ECAL_CHANNELS];
 
 
 	void setMeasurementPhase(VNAMeasurementPhases ph);
 	void sweepAdvance();
-	void sampleProcessor_emitValue(int32_t valRe, int32_t valIm);
+	void sampleProcessor_emitValue(int64_t valRe, int64_t valIm, bool clipped);
 	void doEmitValue(bool ecal);
 };

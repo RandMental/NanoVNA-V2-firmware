@@ -63,15 +63,7 @@ namespace synthesizers {
 
 		return si5351.Init() == 0;
 	}
-	static uint32_t gcd(uint32_t x, uint32_t y) {
-		uint32_t z;
-		while (y != 0) {
-			z = x % y;
-			x = y;
-			y = z;
-		}
-		return x;
-	}
+
 	int si5351_set(uint32_t rxFreqHz, uint32_t txFreqHz) {
 		using namespace Si5351;
 		int ret = 0;
@@ -86,7 +78,7 @@ namespace synthesizers {
 
 		pllFreqHz = xtalFreqHz * mult;
 
-		int divInputFreqHz = pllFreqHz;
+		uint32_t divInputFreqHz = pllFreqHz;
 
 		if(rxFreqHz < 500000) { /* Below 500Khz */
 			rDiv = CLK_R_Div128;
@@ -119,9 +111,9 @@ namespace synthesizers {
 
 				// calculate pll settings
 				uint32_t mult = uint32_t(uint64_t(freqHz)*6*128/1000);
-				uint32_t N = mult/xtalFreqKHz;
-				uint32_t frac = mult - N*xtalFreqKHz;
-
+				uint32_t N    = mult / xtalFreqKHz;
+				uint32_t frac = mult % xtalFreqKHz;
+				approximate_fraction(&N, &frac);
 				si5351.PLL[pll].PLL_Multiplier_Integer = N;
 				si5351.PLL[pll].PLL_Multiplier_Numerator = frac;
 				si5351.PLL[pll].PLL_Multiplier_Denominator = xtalFreqKHz;
@@ -148,17 +140,11 @@ namespace synthesizers {
 			uint32_t freqHz = (i == 0) ? rxFreqHz : txFreqHz;
 			int port = (i == 0) ? si5351_rxPort : si5351_txPort;
 
-			int32_t div = divInputFreqHz / freqHz; // range: 8 ~ 1800
-			int32_t num = divInputFreqHz % freqHz;
-			int32_t denom = freqHz;
-			//int32_t k = freq / (1<<20) + 1;
-			int32_t k = gcd(num, denom);
-			num /= k;
-			denom /= k;
-			while (denom >= (1<<20)) {
-				num >>= 1;
-				denom >>= 1;
-			}
+			uint32_t div = divInputFreqHz / freqHz; // range: 8 ~ 1800
+			uint32_t num = divInputFreqHz % freqHz;
+			uint32_t denom = freqHz;
+			approximate_fraction(&num, &denom);
+
 			// f = divInputFreqHz / (div + num/denom)
 			// = divInputFreqHz / ((div*denom + num) / denom)
 			// = divInputFreqHz * denom / (div*denom + num)

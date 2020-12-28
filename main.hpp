@@ -14,10 +14,14 @@ namespace UIActions {
 
 	void cal_collect(int type);
 	void cal_done(void);
+	void cal_reset(void);
+	void cal_reset_all(void);
+	void rebuild_bbgain(void);
 
 	void set_sweep_frequency(SweepParameter type, freqHz_t frequency);
 	void set_sweep_points(int points);
 	freqHz_t get_sweep_frequency(int type);
+	void set_measurement_mode(enum MeasurementMode mode);
 	freqHz_t frequencyAt(int index);
 
 	void toggle_sweep(void);
@@ -33,6 +37,8 @@ namespace UIActions {
 
 	void apply_edelay_at(int i);
 
+	void set_averaging(int i);
+	void set_adf4350_txPower(int i);
 
 	int caldata_save(int id);
 	int caldata_recall(int id);

@@ -21,6 +21,8 @@
 
 #define BOARD_NAME "NanoVNA V2_1"
 #define BOARD_REVISION (1)
+#define BOARD_REVISION_MAGIC 0xdeadbabb
+#define USB_POINTS_MAX 1024
 
 using namespace mculib;
 using namespace std;
@@ -63,6 +65,7 @@ namespace board {
 
 	// All boards use a 24Mhz TCXO. It gives best phase noise with the ADF4350
 	static constexpr uint32_t xtalFreqHz = 24000000; 
+	static constexpr freqHz_t DEFAULT_FREQ = 2600000000;
 
 	// ADC parameters, set by boardInit()
 	extern uint32_t adc_ratecfg;
@@ -165,19 +168,25 @@ namespace board {
 	// blink the status led
 	void ledPulse();
 
+	int calculateSynthWaitAF( freqHz_t freqHz);
+	int calculateSynthWaitSI(int retval);
+
 	// sets up hardware spi for ili9341 and touch.
 	// spi peripheral only manages clk, sdi, and sdo.
 	void lcd_spi_init();
 
-	// two speed presets for ili9341 and touch controller
-	void lcd_spi_fast();
+	// three speed presets for ili9341 write/read and touch controller
+	void lcd_spi_write();
+	void lcd_spi_read();
 	void lcd_spi_slow();
 
 	// bits must be 16 or 8
 	uint32_t lcd_spi_transfer(uint32_t sdi, int bits);
 
 	void lcd_spi_transfer_bulk(uint8_t* buf, int bytes);
-	
+
+	void lcd_spi_read_bulk(uint8_t* buf, int bytes);
+
 	// wait for all bulk transfers to complete
 	void lcd_spi_waitDMA();
 }

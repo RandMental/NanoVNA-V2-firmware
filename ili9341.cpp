@@ -19,7 +19,6 @@
  */
 #include "ili9341.hpp"
 #include "Font.h"
-#include "numfont20x22.h"
 #include "plot.hpp"
 
 // Display commands list
@@ -153,6 +152,7 @@ small_function<void(bool selected)> ili9341_spi_set_cs;
 small_function<uint32_t(uint32_t sdi, int bits)> ili9341_spi_transfer;
 small_function<void(uint32_t words)> ili9341_spi_transfer_bulk;
 small_function<void()> ili9341_spi_wait_bulk;
+small_function<void(uint8_t *buf, uint32_t bytes)> ili9341_spi_read;
 
 static inline void ssp_senddata(uint8_t x)
 {
@@ -251,9 +251,9 @@ static const uint8_t ili_init_seq[] = {
   // Interface Mode Control
   ILI9341_RGB_INTERFACE_CONTROL, 1, 0x00,
   // Frame Rate
-  ILI9341_FRAME_RATE_CONTROL_1, 2, 0x70, 0x1F,
+  ILI9341_FRAME_RATE_CONTROL_1, 2, 0x80, 0x10,
   // Display Inversion Control , 2 Dot
-  ILI9341_DISPLAY_INVERSION_CONTROL, 1, 0x02,
+  ILI9341_DISPLAY_INVERSION_CONTROL, 1, 0x00,
   // RGB/MCU Interface Control
   ILI9341_DISPLAY_FUNCTION_CONTROL, 3, 0x02, 0x02, 0x3B,
   // EntryMode
@@ -277,9 +277,9 @@ static const uint8_t ili_init_seq[] = {
   //Set Image Func
 //  0xE9, 1, 0x00,
   // Set Brightness to Max
-  ILI9341_WRITE_BRIGHTNESS, 1, 0xFF,
+//  ILI9341_WRITE_BRIGHTNESS, 1, 0xFF,
   // Adjust Control
-  ILI9341_PUMP_RATIO_CONTROL, 4, 0xA9, 0x51, 0x2C, 0x82,
+//  ILI9341_PUMP_RATIO_CONTROL, 4, 0xA9, 0x51, 0x2C, 0x82,
   //Exit Sleep
   ILI9341_SLEEP_OUT, 0x00,
   // display on
@@ -379,44 +379,37 @@ void ili9341_bulk(int x, int y, int w, int h)
 }
 
 void
-ili9341_read_memory_raw(uint8_t cmd, int len, uint16_t* out)
-{
-	uint8_t r, g, b;
-	ili9341_spi_wait_bulk();
-	send_command(cmd, 0, NULL);
-
-	// require 8bit dummy clock
-	r = ssp_sendrecvdata(0);
-
-	while (len-- > 0) {
-		// read data is always 18bit
-		r = ssp_sendrecvdata(0);
-		g = ssp_sendrecvdata(0);
-		b = ssp_sendrecvdata(0);
-		*out++ = ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3);
-	}
-
-	CS_HIGH;
-}
-
-void
-ili9341_read_memory(int x, int y, int w, int h, int len, uint16_t *out)
+ili9341_read_memory(int x, int y, int w, int h, uint16_t *out)
 {
 	uint32_t xx = __REV16(x | ((x + w - 1) << 16));
 	uint32_t yy = __REV16(y | ((y + h - 1) << 16));
 	ili9341_spi_wait_bulk();
 	send_command(ILI9341_COLUMN_ADDRESS_SET, 4, (uint8_t *)&xx);
 	send_command(ILI9341_PAGE_ADDRESS_SET, 4, (uint8_t*)&yy);
-	
-	ili9341_read_memory_raw(0x2E, len, out);
-}
 
-void
-ili9341_read_memory_continue(int len, uint16_t* out)
-{
-	ili9341_read_memory_raw(0x3E, len, out);
-}
+	ili9341_spi_wait_bulk();
+	send_command(0x2E, 0, NULL);
 
+	int len = w * h;
+#ifndef DISPLAY_ST7796
+	// require 8bit dummy clock
+	ssp_sendrecvdata(0);
+	do {
+		// read data is always 24bit RGB888
+		uint8_t r, g, b;
+		r = ssp_sendrecvdata(0);
+		g = ssp_sendrecvdata(0);
+		b = ssp_sendrecvdata(0);
+		*out++ = RGB565(r,g,b);
+	} while(--len);
+#else
+	// require 8bit dummy clock
+	ssp_sendrecvdata(0);
+	// read data is always 16bit RGB565
+	ili9341_spi_read((uint8_t *)out, len * 2);
+#endif
+	CS_HIGH;
+}
 
 void
 ili9341_set_flip(bool flipX, bool flipY) {
@@ -446,32 +439,18 @@ ili9341_set_background(uint16_t bg)
   background_color = bg;
 }
 
-void
-blit8BitWidthBitmap(uint16_t x, uint16_t y, uint16_t width, uint16_t height,
-                         const uint8_t *bitmap)
+//static uint8_t bit_align = 0;
+void ili9341_blitBitmap(uint16_t x, uint16_t y, uint16_t width, uint16_t height, const uint8_t *b)
 {
   uint16_t *buf = ili9341_spi_buffer;
-  for (uint16_t c = 0; c < height; c++) {
-    uint8_t bits = *bitmap++;
-    for (uint16_t r = 0; r < width; r++) {
+  uint8_t bits = 0;
+  for (uint32_t c = 0; c < height; c++) {
+    for (uint32_t r = 0; r < width; r++) {
+      if ((r&7) == 0) bits = *b++;
       *buf++ = (0x80 & bits) ? foreground_color : background_color;
       bits <<= 1;
     }
-  }
-  ili9341_bulk(x, y, width, height);
-}
-
-void
-blit16BitWidthBitmap(uint16_t x, uint16_t y, uint16_t width, uint16_t height,
-                                 const uint16_t *bitmap)
-{
-  uint16_t *buf = ili9341_spi_buffer;
-  for (uint16_t c = 0; c < height; c++) {
-    uint16_t bits = *bitmap++;
-    for (uint16_t r = 0; r < width; r++) {
-      *buf++ = (0x8000 & bits) ? foreground_color : background_color;
-      bits <<= 1;
-    }
+//    if (bit_align) b+=bit_align;
   }
   ili9341_bulk(x, y, width, height);
 }
@@ -479,17 +458,18 @@ blit16BitWidthBitmap(uint16_t x, uint16_t y, uint16_t width, uint16_t height,
 void
 ili9341_drawchar(uint8_t ch, int x, int y)
 {
-  blit8BitWidthBitmap(x, y, FONT_GET_WIDTH(ch), FONT_GET_HEIGHT, FONT_GET_DATA(ch));
+  ili9341_blitBitmap(x, y, FONT_GET_WIDTH(ch), FONT_GET_HEIGHT, FONT_GET_DATA(ch));
 }
 
-void
-ili9341_drawstring(const char *str, int x, int y)
+void ili9341_drawstring(const char *str, int x, int y)
 {
+  int x_pos = x;
   while (*str) {
     uint8_t ch = *str++;
+    if (ch == '\n') {x = x_pos; y+=FONT_STR_HEIGHT; continue;}
     const uint8_t *char_buf = FONT_GET_DATA(ch);
     uint16_t w = FONT_GET_WIDTH(ch);
-    blit8BitWidthBitmap(x, y, w, FONT_GET_HEIGHT, char_buf);
+    ili9341_blitBitmap(x, y, w, FONT_GET_HEIGHT, char_buf);
     x += w;
   }
 }
@@ -502,7 +482,7 @@ ili9341_drawstring(const char *str, int len, int x, int y)
 		uint8_t ch = *str++;
 		const uint8_t *char_buf = FONT_GET_DATA(ch);
 		uint16_t w = FONT_GET_WIDTH(ch);
-		blit8BitWidthBitmap(x, y, w, FONT_GET_HEIGHT, char_buf);
+		ili9341_blitBitmap(x, y, w, FONT_GET_HEIGHT, char_buf);
 		x += w;
 	}
 }
@@ -582,7 +562,7 @@ ili9341_line(int x0, int y0, int x1, int y1)
 void
 ili9341_drawfont(uint8_t ch, int x, int y)
 {
-	blit16BitWidthBitmap(x, y, NUM_FONT_GET_WIDTH, NUM_FONT_GET_HEIGHT, NUM_FONT_GET_DATA(ch));
+  ili9341_blitBitmap(x, y, NUM_FONT_GET_WIDTH, NUM_FONT_GET_HEIGHT, NUM_FONT_GET_DATA(ch));
 }
 
 #if 0

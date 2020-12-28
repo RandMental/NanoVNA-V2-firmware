@@ -8,14 +8,18 @@ MEMORY
 	/*
 	256KB flash total
 	16KB reserved at start for bootloader.
-	52KB reserved at end for user data (10K * 5 + 2K).
+	128KB reserved at end for user data (18K * 7 + 2K).
 	*/
-	rom (rx) : ORIGIN = 0x08004000, LENGTH = 188K
+	rom (rx) : ORIGIN = 0x08004000, LENGTH = 112K
 }
 SECTIONS
 {
  .text : {
   *(.vectors)
+  . = ALIGN(2048);
+  *(.start*)
+  KEEP (*(.start))
+  . = ALIGN(2048);
   *(.text*)
   . = ALIGN(4);
   *(.rodata*)

@@ -6,11 +6,12 @@
  * flash.cpp
  */
 
-
-constexpr int SAVEAREA_MAX = 5;
+#ifndef SAVEAREA_MAX
+#define SAVEAREA_MAX  7
+#endif
 
 // allocated bytes per save area. must be a multiple of the flash page size (2048)
-constexpr uint32_t SAVEAREA_BYTES = 10240;
+constexpr uint32_t SAVEAREA_BYTES = 18432;
 
 // total bytes of save areas
 constexpr uint32_t SAVETOTAL_BYTES = SAVEAREA_BYTES * SAVEAREA_MAX;
@@ -36,7 +37,7 @@ uint32_t flash_program_data(uint32_t start_address, uint8_t *input_data, uint32_
 
 int flash_caldata_save(int id);
 int flash_caldata_recall(int id);
-const properties_t *flash_caldata_ref(int id);
+const properties_t *caldata_reference(void);
 
 int flash_config_save(void);
 int flash_config_recall(void);
