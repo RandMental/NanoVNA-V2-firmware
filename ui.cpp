@@ -379,7 +379,7 @@ show_message(const char* title, const char* message, int fg, int bg)
 }
 
 void
-ui_enter_dfu(void)
+ui_enter_bootload(void)
 {
   uiDisableProcessing();
 
@@ -388,10 +388,10 @@ ui_enter_dfu(void)
   ili9341_set_background(DEFAULT_BG_COLOR);
   // leave a last message
   ili9341_clear_screen();
-  ili9341_drawstring("DFU: Device Firmware Update Mode", x, y += FONT_STR_HEIGHT);
-  ili9341_drawstring("To exit DFU mode, please reset device yourself.", x, y += FONT_STR_HEIGHT);
+  ili9341_drawstring("BOOTLOAD: Device Firmware Update Mode", x, y += FONT_STR_HEIGHT);
+  ili9341_drawstring("To exit Bootload mode, please reset device yourself.", x, y += FONT_STR_HEIGHT);
 
-  enterDFU();
+  enterBootload();
 }
 
 
@@ -524,11 +524,11 @@ static UI_FUNCTION_CALLBACK(menu_config_save_cb)
   menu_move_back(true);
 }
 
-static UI_FUNCTION_CALLBACK(menu_dfu_cb)
+static UI_FUNCTION_CALLBACK(menu_bootload_cb)
 {
   (void)item;
   (void)data;
-  ui_enter_dfu();
+  ui_enter_bootload();
 }
 
 static UI_FUNCTION_CALLBACK(menu_save_cb)
@@ -1038,13 +1038,9 @@ const menuitem_t menu_avg[] = {
   { MT_ADV_CALLBACK, 5, "5x", (const void *)menu_avg_acb },
   { MT_ADV_CALLBACK, 10, "10x", (const void *)menu_avg_acb },
   { MT_ADV_CALLBACK, 20, "20x", (const void *)menu_avg_acb },
-#if BOARD_MEASUREMENT_MAX_CALIBRATION_AVG < 40
-  { MT_ADV_CALLBACK, 25, "25x", (const void *)menu_avg_acb },
-#else
   { MT_ADV_CALLBACK, 40, "40x", (const void *)menu_avg_acb },
 //  { MT_ADV_CALLBACK, 60, "60x", (const void *)menu_avg_acb },
   { MT_ADV_CALLBACK, 80, "80x", (const void *)menu_avg_acb },
-#endif
   { MT_CANCEL, 0, S_LARROW" BACK", NULL },
   { MT_NONE, 0, NULL, NULL } // sentinel
 };
@@ -1165,8 +1161,8 @@ const menuitem_t menu_recall[] = {
   { MT_NONE, 0, NULL, NULL } // sentinel
 };
 
-const menuitem_t menu_dfu[] = {
-  { MT_CALLBACK, 0, "RESET AND\nENTER DFU", (const void *)menu_dfu_cb },
+const menuitem_t menu_bootload[] = {
+  { MT_CALLBACK, 0, "RESET AND\nENTER", (const void *)menu_bootload_cb },
   { MT_CANCEL, 0, S_LARROW"CANCEL", NULL },
   { MT_NONE, 0, NULL, NULL } // sentinel
 };
@@ -1177,7 +1173,7 @@ const menuitem_t menu_config[] = {
   { MT_CALLBACK, 0, "SAVE", (const void *)menu_config_save_cb },
   { MT_CALLBACK, 0, "VERSION", (const void *)menu_config_cb },
   { MT_CALLBACK, 0, "DMESG", (const void *)menu_config_cb },
-  { MT_SUBMENU, 0, S_RARROW"DFU", (const void *)menu_dfu },
+  { MT_SUBMENU, 0, S_RARROW"BOOTLOAD", (const void *)menu_bootload },
   { MT_CANCEL, 0, S_LARROW" BACK", NULL },
   { MT_NONE, 0, NULL, NULL } // sentinel
 };
