@@ -379,7 +379,7 @@ show_message(const char* title, const char* message, int fg, int bg)
 }
 
 void
-ui_enter_dfu(void)
+ui_enter_bootload(void)
 {
   uiDisableProcessing();
 
@@ -388,10 +388,10 @@ ui_enter_dfu(void)
   ili9341_set_background(DEFAULT_BG_COLOR);
   // leave a last message
   ili9341_clear_screen();
-  ili9341_drawstring("DFU: Device Firmware Update Mode", x, y += FONT_STR_HEIGHT);
-  ili9341_drawstring("To exit DFU mode, please reset device yourself.", x, y += FONT_STR_HEIGHT);
+  ili9341_drawstring("BOOTLOAD: Device Firmware Update Mode", x, y += FONT_STR_HEIGHT);
+  ili9341_drawstring("To exit Bootload mode, please reset device yourself.", x, y += FONT_STR_HEIGHT);
 
-  enterDFU();
+  enterBootload();
 }
 
 
@@ -524,11 +524,11 @@ static UI_FUNCTION_CALLBACK(menu_config_save_cb)
   menu_move_back(true);
 }
 
-static UI_FUNCTION_CALLBACK(menu_dfu_cb)
+static UI_FUNCTION_CALLBACK(menu_bootload_cb)
 {
   (void)item;
   (void)data;
-  ui_enter_dfu();
+  ui_enter_bootload();
 }
 
 static UI_FUNCTION_CALLBACK(menu_save_cb)
@@ -717,6 +717,8 @@ static UI_FUNCTION_ADV_CALLBACK(measurement_mode)
         b->icon = (mode == cur_mode) ? BUTTON_ICON_GROUP_CHECKED : BUTTON_ICON_GROUP ;
         return;
     }
+    // CW work also as checkbox
+    if (cur_mode == mode && mode == MEASURE_MODE_REFL_THRU) mode = MEASURE_MODE_FULL;
     set_measurement_mode(mode);
     draw_menu();
 }
@@ -792,6 +794,19 @@ static UI_FUNCTION_CALLBACK(menu_marker_op_cb)
   draw_cal_status();
   //redraw_all();
 }
+
+#ifdef __USE_LC_MATCHING__
+static UI_FUNCTION_ADV_CALLBACK(menu_marker_lc_match_acb)
+{
+  (void)data;
+  if (b){
+    b->icon = domain_mode & TD_LC_MATH ? BUTTON_ICON_CHECK : BUTTON_ICON_NOCHECK;
+    return;
+  }
+  domain_mode^=TD_LC_MATH;
+  ui_mode_normal();
+}
+#endif
 
 static UI_FUNCTION_CALLBACK(menu_marker_search_cb)
 {
@@ -1024,6 +1039,8 @@ const menuitem_t menu_avg[] = {
   { MT_ADV_CALLBACK, 10, "10x", (const void *)menu_avg_acb },
   { MT_ADV_CALLBACK, 20, "20x", (const void *)menu_avg_acb },
   { MT_ADV_CALLBACK, 40, "40x", (const void *)menu_avg_acb },
+//  { MT_ADV_CALLBACK, 60, "60x", (const void *)menu_avg_acb },
+  { MT_ADV_CALLBACK, 80, "80x", (const void *)menu_avg_acb },
   { MT_CANCEL, 0, S_LARROW" BACK", NULL },
   { MT_NONE, 0, NULL, NULL } // sentinel
 };
@@ -1053,8 +1070,10 @@ const menuitem_t menu_power[] = {
 static const menuitem_t menu_sweep_config[] = {
   { MT_CALLBACK, KM_POINTS, "SWEEP\nPOINTS", (const void *)menu_keyboard_cb },
   { MT_ADV_CALLBACK, (uint8_t)MEASURE_MODE_REFL_THRU, "CW", (const void *)measurement_mode },
+#ifndef BOARD_DISABLE_ECAL
   { MT_ADV_CALLBACK, (uint8_t)MEASURE_MODE_REFL_THRU_REFRENCE, "No ECAL", (const void *)measurement_mode  },
   { MT_ADV_CALLBACK, (uint8_t)MEASURE_MODE_FULL, "ECAL", (const void *)measurement_mode  },
+#endif
   { MT_SUBMENU,  0, "ADF4350\nTX POWER", (const void *)menu_power },
   { MT_CANCEL, 0, S_LARROW" BACK", NULL },
   { MT_NONE, 0, NULL, NULL } // sentinel
@@ -1110,6 +1129,9 @@ const menuitem_t menu_marker_smith[] = {
   { MT_ADV_CALLBACK, MS_REIM,"Re+Im", (const void *)menu_marker_smith_acb },
   { MT_ADV_CALLBACK, MS_RX,  "R+Xj", (const void *)menu_marker_smith_acb },
   { MT_ADV_CALLBACK, MS_RLC, "R+L/C", (const void *)menu_marker_smith_acb },
+#ifdef __USE_LC_MATCHING__
+  { MT_ADV_CALLBACK,      0, "L/C MATCH", (const void *)menu_marker_lc_match_acb },
+#endif
   { MT_CANCEL, 0, S_LARROW" BACK", NULL },
   { MT_NONE, 0, NULL, NULL } // sentinel
 };
@@ -1139,8 +1161,8 @@ const menuitem_t menu_recall[] = {
   { MT_NONE, 0, NULL, NULL } // sentinel
 };
 
-const menuitem_t menu_dfu[] = {
-  { MT_CALLBACK, 0, "RESET AND\nENTER DFU", (const void *)menu_dfu_cb },
+const menuitem_t menu_bootload[] = {
+  { MT_CALLBACK, 0, "RESET AND\nENTER", (const void *)menu_bootload_cb },
   { MT_CANCEL, 0, S_LARROW"CANCEL", NULL },
   { MT_NONE, 0, NULL, NULL } // sentinel
 };
@@ -1151,7 +1173,7 @@ const menuitem_t menu_config[] = {
   { MT_CALLBACK, 0, "SAVE", (const void *)menu_config_save_cb },
   { MT_CALLBACK, 0, "VERSION", (const void *)menu_config_cb },
   { MT_CALLBACK, 0, "DMESG", (const void *)menu_config_cb },
-  { MT_SUBMENU, 0, S_RARROW"DFU", (const void *)menu_dfu },
+  { MT_SUBMENU, 0, S_RARROW"BOOTLOAD", (const void *)menu_bootload },
   { MT_CANCEL, 0, S_LARROW" BACK", NULL },
   { MT_NONE, 0, NULL, NULL } // sentinel
 };
@@ -1689,6 +1711,7 @@ leave_ui_mode()
     request_to_draw_cells_behind_menu();
     erase_menu_buttons();
   }
+  draw_frequencies();
 }
 
 void set_numeric_value(void)
